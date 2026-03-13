@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { FileUpload, CodeFile } from "@/components/FileUpload";
 import { CodeAnalysis } from "@/components/CodeAnalysis";
 import { BestPractices } from "@/components/BestPractices";
@@ -14,11 +14,10 @@ import {
   Save,
   Share,
   AlertTriangle,
-  Mail,
   Clock,
   RefreshCw,
 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -39,8 +38,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useRateLimit } from "@/hooks/useRateLimit";
-import { useAuth } from "@/hooks/useAuth";
 
 const CodeReview = () => {
   const [codeFiles, setCodeFiles] = useState<CodeFile[]>([]);
@@ -51,37 +48,7 @@ const CodeReview = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResults, setAnalysisResults] =
     useState<AnalysisResults | null>(null);
-
-  const { rateLimitStatus, checkRateLimit } = useRateLimit();
-  const { isAuthenticated } = useAuth();
-  const navigate = useNavigate();
-
-  // Check rate limits when component mounts
-  useEffect(() => {
-    checkRateLimit();
-  }, [checkRateLimit]);
-
-  // Handle rate limit redirection for guests
-  useEffect(() => {
-    const isDevelopment = import.meta.env.DEV;
-
-    // Skip rate limit redirection in development mode
-    if (isDevelopment) {
-      console.log("🚀 Development Mode: Skipping rate limit redirection");
-      return;
-    }
-
-    if (!isAuthenticated && rateLimitStatus.isLimited) {
-      navigate("/login", {
-        state: {
-          rateLimitExceeded: true,
-          message:
-            "Rate limit exceeded. Please login to continue with higher limits.",
-        },
-        replace: true,
-      });
-    }
-  }, [isAuthenticated, rateLimitStatus.isLimited, navigate]);
+  const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
 
   // Error handling state
   const [errorDialog, setErrorDialog] = useState<{
@@ -166,8 +133,11 @@ const CodeReview = () => {
           title: "Daily Limit Reached",
           message:
             "You have reached your daily limit for code analysis requests.",
-          details:
-            "If you need more requests, please contact us at: rafkhan9323@gmail.com",
+          details: "Please wait a bit and try again.",
+        });
+        setRetryAction(() => () => {
+          setErrorDialog((prev) => ({ ...prev, isOpen: false }));
+          void handleAnalyze();
         });
       } else if (isApiError(error)) {
         // Determine error type based on status code
@@ -204,6 +174,11 @@ const CodeReview = () => {
           variant: "destructive",
           duration: 5000,
         });
+
+        setRetryAction(() => () => {
+          setErrorDialog((prev) => ({ ...prev, isOpen: false }));
+          void handleAnalyze();
+        });
       } else {
         // Unknown error
         toast({
@@ -211,6 +186,11 @@ const CodeReview = () => {
           description: "Failed to analyze code. Please try again.",
           variant: "destructive",
           duration: 5000,
+        });
+
+        setRetryAction(() => () => {
+          setErrorDialog((prev) => ({ ...prev, isOpen: false }));
+          void handleAnalyze();
         });
       }
     } finally {
@@ -540,15 +520,9 @@ const CodeReview = () => {
 
             {errorDialog.details && (
               <div className="bg-orange-500/10 p-3 rounded-md border-l-4 border-orange-400">
-                <p className="text-sm font-medium text-orange-300 mb-1">
-                  Contact Information:
-                </p>
-                <div className="flex items-center space-x-2">
-                  <Mail className="h-4 w-4 text-gray-400" />
-                  <span className="text-sm text-gray-300">
-                    {errorDialog.details}
-                  </span>
-                </div>
+                <span className="text-sm text-gray-300">
+                  {errorDialog.details}
+                </span>
               </div>
             )}
 
@@ -561,9 +535,7 @@ const CodeReview = () => {
                   <li>
                     • Wait for the daily limit to reset (resets at midnight UTC)
                   </li>
-                  <li>
-                    • Contact us for increased limits if you're a regular user
-                  </li>
+                  <li>• Retry in a moment when capacity is available</li>
                   <li>• Try the AI chat feature which has separate limits</li>
                 </ul>
               </div>
@@ -592,28 +564,19 @@ const CodeReview = () => {
                   <li>• Wait a few minutes and try again</li>
                   <li>• Refresh the page</li>
                   <li>• Try with smaller code files</li>
-                  <li>• If the problem persists, contact support</li>
+                  <li>• Retry after a short backoff</li>
                 </ul>
               </div>
             )}
           </AlertDialogDescription>
 
           <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-            {errorDialog.type === "rate_limit" && errorDialog.details && (
+            {retryAction && (
               <AlertDialogAction
-                onClick={() => {
-                  window.open(
-                    `mailto:${errorDialog.details?.replace(
-                      "If you need more requests, please contact us at: ",
-                      ""
-                    )}?subject=Request for Increased Code Analysis Limits&body=Hello, I would like to request increased daily limits for the code analysis feature. Thank you!`,
-                    "_blank"
-                  );
-                }}
+                onClick={retryAction}
                 className="bg-orange-600 hover:bg-orange-700 text-white"
               >
-                <Mail className="h-4 w-4 mr-2" />
-                Contact Support
+                Retry Now
               </AlertDialogAction>
             )}
             <AlertDialogCancel

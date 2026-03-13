@@ -29,14 +29,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
-import { useRateLimit } from "@/hooks/useRateLimit";
-import { useAuth } from "@/hooks/useAuth";
-import { useNavigate } from "react-router-dom";
 
 const Home = () => {
-  const { rateLimitStatus, checkRateLimit } = useRateLimit();
-  const { isAuthenticated } = useAuth();
-  const navigate = useNavigate();
   const [isVisible, setIsVisible] = useState(false);
   const [activeFeature, setActiveFeature] = useState(0);
 
@@ -52,33 +46,6 @@ const Home = () => {
     }, 3000);
     return () => clearInterval(interval);
   }, []);
-
-  // Check rate limits when component mounts
-  useEffect(() => {
-    checkRateLimit();
-  }, [checkRateLimit]);
-
-  // Handle rate limit redirection for guests
-  useEffect(() => {
-    const isDevelopment = import.meta.env.DEV;
-
-    // Skip rate limit redirection in development mode
-    if (isDevelopment) {
-      console.log("🚀 Development Mode: Skipping rate limit redirection");
-      return;
-    }
-
-    if (!isAuthenticated && rateLimitStatus.isLimited) {
-      navigate("/login", {
-        state: {
-          rateLimitExceeded: true,
-          message:
-            "Rate limit exceeded. Please login to continue with higher limits.",
-        },
-        replace: true,
-      });
-    }
-  }, [isAuthenticated, rateLimitStatus.isLimited, navigate]);
 
   return (
     <div className="min-h-screen bg-slate-900">
@@ -187,19 +154,6 @@ const Home = () => {
                   <div className="text-sm text-gray-300">{stat.label}</div>
                 </div>
               ))}
-            </div>
-
-            {/* Scroll Down Indicator */}
-            <div className="mt-16 animate-bounce">
-              <div className="flex flex-col items-center space-y-4 text-white/60 hover:text-white/80 transition-colors duration-300 cursor-pointer group">
-                <span className="text-sm font-medium tracking-wider uppercase">
-                  Discover More
-                </span>
-                <div className="w-6 h-10 border-2 border-white/40 rounded-full flex justify-center group-hover:border-white/60 transition-colors duration-300">
-                  <div className="w-1 h-3 bg-white/60 rounded-full mt-2 animate-pulse group-hover:bg-white/80 transition-colors duration-300"></div>
-                </div>
-                <ArrowRight className="h-5 w-5 rotate-90 group-hover:translate-y-1 transition-transform duration-300" />
-              </div>
             </div>
           </div>
         </div>

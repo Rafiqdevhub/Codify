@@ -2,21 +2,12 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { healthApi } from "@/services/api";
 import { useAuth } from "@/hooks/useAuth";
-import { useRateLimit } from "@/hooks/useRateLimit";
 import {
-  Code,
-  CheckCircle,
-  AlertCircle,
-  Clock,
   ArrowRight,
   User,
   LogOut,
   Settings,
   Key,
-  AlertTriangle,
-  Sparkles,
-  Activity,
-  Shield,
   Menu,
   X,
   Mail,
@@ -43,8 +34,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { RateLimitStatus } from "@/types/rateLimit";
-import { ENV } from "@/config/environment";
 
 interface ApiStatus {
   status: "online" | "offline" | "loading";
@@ -53,136 +42,6 @@ interface ApiStatus {
   version?: string;
   endpoints?: string[];
 }
-
-const StatusIndicator = ({
-  status,
-  responseTime,
-}: {
-  status: ApiStatus["status"];
-  responseTime: number;
-}) => {
-  const getStatusConfig = () => {
-    switch (status) {
-      case "online":
-        return {
-          color: "bg-emerald-500",
-          ringColor: "ring-emerald-200",
-          text: "Online",
-          icon: <CheckCircle className="h-4 w-4 text-emerald-600" />,
-        };
-      case "offline":
-        return {
-          color: "bg-red-500",
-          ringColor: "ring-red-200",
-          text: "Offline",
-          icon: <AlertCircle className="h-4 w-4 text-red-600" />,
-        };
-      default:
-        return {
-          color: "bg-amber-500",
-          ringColor: "ring-amber-200",
-          text: "Checking...",
-          icon: <Clock className="h-4 w-4 text-amber-600" />,
-        };
-    }
-  };
-
-  const config = getStatusConfig();
-
-  return (
-    <div className="flex items-center space-x-3 bg-white/10 backdrop-blur-sm rounded-full px-3 py-2 border border-white/20 shadow-sm hover:shadow-md transition-all duration-300">
-      <div className="relative">
-        {config.icon}
-        <div
-          className={`absolute -top-1 -right-1 w-3 h-3 ${config.color} rounded-full ${config.ringColor} ring-2 animate-pulse`}
-        />
-      </div>
-      <div className="hidden sm:block">
-        <span className="text-sm font-medium text-gray-200">{config.text}</span>
-        {status === "online" && (
-          <span className="text-xs text-gray-300 ml-1">({responseTime}ms)</span>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const RateLimitIndicator = ({
-  rateLimitStatus,
-}: {
-  rateLimitStatus: RateLimitStatus;
-}) => {
-  const getRateLimitConfig = () => {
-    // Development mode indicator
-    if (ENV.isDevelopment) {
-      return {
-        color: "bg-purple-500",
-        ringColor: "ring-purple-200",
-        text: "DEV",
-        icon: <Sparkles className="h-4 w-4 text-purple-400 animate-pulse" />,
-        message: "Development Mode - Unlimited",
-        bgColor: "bg-purple-500/10",
-      };
-    }
-
-    if (rateLimitStatus.isLimited) {
-      return {
-        color: "bg-red-500",
-        ringColor: "ring-red-200",
-        text: "Limit Exceeded",
-        icon: <Shield className="h-4 w-4 text-red-400" />,
-        message: "Please login for more requests",
-        bgColor: "bg-red-500/10",
-      };
-    }
-
-    const percentage =
-      (rateLimitStatus.remainingRequests / rateLimitStatus.totalRequests) * 100;
-
-    if (percentage <= 20) {
-      return {
-        color: "bg-amber-500",
-        ringColor: "ring-amber-200",
-        text: `${rateLimitStatus.remainingRequests} left`,
-        icon: <AlertTriangle className="h-4 w-4 text-amber-400" />,
-        message: "Running low on requests",
-        bgColor: "bg-amber-500/10",
-      };
-    }
-
-    return {
-      color: "bg-emerald-500",
-      ringColor: "ring-emerald-200",
-      text: `${rateLimitStatus.remainingRequests}/${rateLimitStatus.totalRequests}`,
-      icon: <Activity className="h-4 w-4 text-emerald-400" />,
-      message: `${rateLimitStatus.userType} limits`,
-      bgColor: "bg-emerald-500/10",
-    };
-  };
-
-  const config = getRateLimitConfig();
-
-  return (
-    <div
-      className={`flex items-center space-x-3 ${config.bgColor} backdrop-blur-sm rounded-full px-3 py-2 border border-white/10 shadow-sm hover:shadow-md transition-all duration-300`}
-    >
-      <div className="relative">
-        {config.icon}
-        <div
-          className={`absolute -top-1 -right-1 w-3 h-3 ${
-            config.color
-          } rounded-full ${config.ringColor} ring-2 ${
-            ENV.isDevelopment ? "animate-pulse" : ""
-          }`}
-        />
-      </div>
-      <div className="hidden sm:block">
-        <span className="text-sm font-medium text-gray-200">{config.text}</span>
-        <span className="text-xs text-gray-300 ml-1">({config.message})</span>
-      </div>
-    </div>
-  );
-};
 
 const Header = () => {
   const [apiStatus, setApiStatus] = useState<ApiStatus>({
@@ -200,42 +59,7 @@ const Header = () => {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { user, isAuthenticated, logout } = useAuth();
-  const { rateLimitStatus } = useRateLimit();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    const checkApiStatus = async () => {
-      const start = Date.now();
-      try {
-        const response = await healthApi.checkStatus();
-        const responseTime = Date.now() - start;
-
-        setApiStatus({
-          status: "online",
-          responseTime,
-          lastCheck: new Date(),
-          version: response.version,
-          endpoints: response.endpoints,
-        });
-      } catch (error) {
-        console.error("API status check failed:", error);
-        const responseTime = Date.now() - start;
-
-        setApiStatus({
-          status: "offline",
-          responseTime,
-          lastCheck: new Date(),
-        });
-      }
-    };
-
-    checkApiStatus();
-
-    // Check API status every 1 minute
-    const interval = setInterval(checkApiStatus, 60000);
-
-    return () => clearInterval(interval);
-  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -457,12 +281,6 @@ const Header = () => {
                 </DialogContent>
               </Dialog>
 
-              <StatusIndicator
-                status={apiStatus.status}
-                responseTime={apiStatus.responseTime}
-              />
-              <RateLimitIndicator rateLimitStatus={rateLimitStatus} />
-
               {isAuthenticated && user ? (
                 <div className="flex items-center space-x-4">
                   <div className="hidden xl:block text-right">
@@ -587,14 +405,6 @@ const Header = () => {
                   <Menu className="h-6 w-6 text-white" />
                 )}
               </button>
-            </div>
-
-            <div className="flex items-center justify-center space-x-2 pb-3 border-b border-white/20">
-              <StatusIndicator
-                status={apiStatus.status}
-                responseTime={apiStatus.responseTime}
-              />
-              <RateLimitIndicator rateLimitStatus={rateLimitStatus} />
             </div>
 
             {isMobileMenuOpen && (

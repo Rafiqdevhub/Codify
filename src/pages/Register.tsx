@@ -211,13 +211,6 @@ const Register: React.FC = () => {
             </p>
           </div>
 
-          <div className="mt-4 p-3 bg-green-500/10 border border-green-500/20 rounded-md">
-            <p className="text-xs text-green-200">
-              <strong>Benefits of registration:</strong> Get 100 requests per
-              day instead of 10 for guests!
-            </p>
-          </div>
-
           <div className="mt-6 text-center">
             <Link
               to="/"

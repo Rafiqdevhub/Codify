@@ -2,16 +2,8 @@ import React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Link, useNavigate, useLocation } from "react-router-dom";
-import {
-  Eye,
-  EyeOff,
-  LogIn,
-  Mail,
-  Lock,
-  AlertTriangle,
-  Home,
-} from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Eye, EyeOff, LogIn, Mail, Lock, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,7 +14,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/hooks/useAuth";
 import { LoginRequest } from "@/types/auth";
 
@@ -39,11 +30,6 @@ const Login: React.FC = () => {
   const [isLoading, setIsLoading] = React.useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
-
-  // Check if redirected due to rate limit
-  const rateLimitExceeded = location.state?.rateLimitExceeded;
-  const rateLimitMessage = location.state?.message;
 
   const {
     register,
@@ -147,16 +133,6 @@ const Login: React.FC = () => {
             </Button>
           </form>
 
-          {rateLimitExceeded && (
-            <Alert className="mt-4 border-orange-500/50 bg-orange-500/10 text-orange-200">
-              <AlertTriangle className="h-4 w-4 text-orange-400" />
-              <AlertDescription className="text-orange-200">
-                {rateLimitMessage ||
-                  "Rate limit exceeded. Please login to continue with higher limits."}
-              </AlertDescription>
-            </Alert>
-          )}
-
           <div className="mt-6 text-center">
             <p className="text-sm text-white/70">
               Don't have an account?{" "}
@@ -166,13 +142,6 @@ const Login: React.FC = () => {
               >
                 Sign up
               </Link>
-            </p>
-          </div>
-
-          <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-md">
-            <p className="text-xs text-blue-200">
-              <strong>Rate Limiting:</strong> Guests have 10 requests per day.
-              Register for higher limits!
             </p>
           </div>
 

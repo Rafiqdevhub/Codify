@@ -7,11 +7,12 @@ import type {
   UpdateProfileRequest,
   ChangePasswordRequest,
 } from "@/types/auth";
+import { ENV } from "@/config/environment";
 
-const API_BASE_URL = "https://codify-backend-sigma.vercel.app";
-// const API_BASE_URL = "http://localhost:5000";
-const isDevelopment = import.meta.env.DEV;
+const API_BASE_URL = ENV.api.baseUrl;
 const isMockMode = import.meta.env.VITE_MOCK_API === "true";
+const RATE_LIMIT_MESSAGE =
+  "You have reached the daily request limit. Please try again later.";
 
 // Mock response functions for development testing
 const mockResponses: Record<string, { success: boolean; data: unknown }> = {
@@ -236,26 +237,76 @@ export class ApiError extends Error {
 }
 
 function createApiClient(baseUrl: string) {
+  type ApiRequestOptions = RequestInit & {
+    includeAuth?: boolean;
+  };
+
+  const getAuthToken = (): string | null => localStorage.getItem("auth_token");
+
+  const mapApiError = (
+    status: number,
+    statusText: string,
+    errorData: Record<string, unknown>,
+  ): ApiError => {
+    if (status === 429) {
+      return new ApiError({
+        message: RATE_LIMIT_MESSAGE,
+        status,
+        code: "RATE_LIMIT_EXCEEDED",
+      });
+    }
+
+    const code =
+      (typeof errorData.code === "string" && errorData.code) ||
+      (typeof errorData.error === "string" && errorData.error) ||
+      (status === 401 ? "UNAUTHORIZED" : "API_ERROR");
+
+    const message =
+      (typeof errorData.message === "string" && errorData.message) ||
+      (typeof errorData.error === "string" && errorData.error) ||
+      `HTTP ${status}: ${statusText}`;
+
+    return new ApiError({
+      message,
+      status,
+      code,
+    });
+  };
+
   const request = async <T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: ApiRequestOptions = {},
   ): Promise<T> => {
     const url = `${baseUrl}${endpoint}`;
+    const { includeAuth = true, ...requestOptions } = options;
 
-    const config: RequestInit = {
-      headers: {
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-      ...options,
+    const headers = new Headers(requestOptions.headers || {});
+    const isFormDataBody = requestOptions.body instanceof FormData;
+    const hasNonFormBody = requestOptions.body !== undefined && !isFormDataBody;
+
+    if (hasNonFormBody && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+
+    if (includeAuth && !headers.has("Authorization")) {
+      const token = getAuthToken();
+      if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+    }
+
+    const config: ApiRequestOptions = {
+      ...requestOptions,
+      headers,
     };
 
     try {
       // Check if we should use mock responses
       if (isMockMode) {
-        console.log(
-          `🚀 [MOCK] Using mock response for ${endpoint} (Mock mode: ${isMockMode})`
-        );
+        if (import.meta.env.PROD) {
+          console.warn("[MOCK] VITE_MOCK_API is enabled in production.");
+        }
+        console.log(`[MOCK] Using mock response for ${endpoint}`);
         const mockResponse = getMockResponse(endpoint);
         if (mockResponse) {
           // Add a small delay to simulate network request
@@ -282,25 +333,15 @@ function createApiClient(baseUrl: string) {
       const response = await fetch(url, config);
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = (await response.json().catch(() => ({}))) as Record<
+          string,
+          unknown
+        >;
+        throw mapApiError(response.status, response.statusText, errorData);
+      }
 
-        // Check for rate limit errors
-        if (response.status === 429) {
-          throw new ApiError({
-            message:
-              "You have reached the daily limit. If you want more requests, contact us at: rafkhan9323@gmail.com",
-            status: response.status,
-            code: "RATE_LIMIT_EXCEEDED",
-          });
-        }
-
-        throw new ApiError({
-          message:
-            errorData.message ||
-            `HTTP ${response.status}: ${response.statusText}`,
-          status: response.status,
-          code: errorData.code,
-        });
+      if (response.status === 204) {
+        return {} as T;
       }
 
       return await response.json();
@@ -317,35 +358,45 @@ function createApiClient(baseUrl: string) {
   };
 
   return {
-    get: <T>(endpoint: string, headers?: Record<string, string>): Promise<T> =>
-      request<T>(endpoint, { method: "GET", headers }),
+    get: <T>(
+      endpoint: string,
+      headers?: Record<string, string>,
+      includeAuth = true,
+    ): Promise<T> =>
+      request<T>(endpoint, { method: "GET", headers, includeAuth }),
 
     post: <T>(
       endpoint: string,
       data?: unknown,
-      headers?: Record<string, string>
+      headers?: Record<string, string>,
+      includeAuth = true,
     ): Promise<T> =>
       request<T>(endpoint, {
         method: "POST",
         body: data ? JSON.stringify(data) : undefined,
         headers,
+        includeAuth,
       }),
 
     put: <T>(
       endpoint: string,
       data?: unknown,
-      headers?: Record<string, string>
+      headers?: Record<string, string>,
+      includeAuth = true,
     ): Promise<T> =>
       request<T>(endpoint, {
         method: "PUT",
         body: data ? JSON.stringify(data) : undefined,
         headers,
+        includeAuth,
       }),
 
     delete: <T>(
       endpoint: string,
-      headers?: Record<string, string>
-    ): Promise<T> => request<T>(endpoint, { method: "DELETE", headers }),
+      headers?: Record<string, string>,
+      includeAuth = true,
+    ): Promise<T> =>
+      request<T>(endpoint, { method: "DELETE", headers, includeAuth }),
   };
 }
 
@@ -361,10 +412,18 @@ export const healthApi = {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const response = await fetch(API_BASE_URL, {
-        method: "HEAD",
+      const response = await fetch(`${API_BASE_URL}/health`, {
+        method: "GET",
         signal: controller.signal,
       });
+
+      if (!response.ok) {
+        throw new ApiError({
+          message: `Health check failed: HTTP ${response.status}`,
+          status: response.status,
+          code: "HEALTH_CHECK_FAILED",
+        });
+      }
 
       clearTimeout(timeoutId);
 
@@ -406,7 +465,9 @@ export const healthApi = {
     uptime: number;
   }> {
     return apiClient.get<{ status: string; timestamp: string; uptime: number }>(
-      "/health"
+      "/health",
+      undefined,
+      false,
     );
   },
 };
@@ -415,7 +476,7 @@ export const codeAnalysisApi = {
   async analyzeText(request: CodeAnalysisRequest): Promise<AnalysisResults> {
     const response = await apiClient.post<BackendApiResponse<CodeReviewResult>>(
       "/api/ai/review-text",
-      request
+      request,
     );
 
     return transformCodeReviewToAnalysis(response.data);
@@ -423,7 +484,7 @@ export const codeAnalysisApi = {
 
   async analyzeFiles(
     files: File[],
-    threadId?: string
+    threadId?: string,
   ): Promise<AnalysisResults> {
     const formData = new FormData();
 
@@ -435,30 +496,45 @@ export const codeAnalysisApi = {
       formData.append("threadId", threadId);
     }
 
+    const token = localStorage.getItem("auth_token");
+    const uploadHeaders: Record<string, string> = {};
+    if (token) {
+      uploadHeaders.Authorization = `Bearer ${token}`;
+    }
+
     const response = await fetch(`${API_BASE_URL}/api/ai/review-files`, {
       method: "POST",
+      headers: uploadHeaders,
       body: formData,
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
+      const errorData = (await response.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
 
-      // Check for rate limit errors
       if (response.status === 429) {
         throw new ApiError({
-          message:
-            "You have reached the daily limit. If you want more requests, contact us at: rafkhan9323@gmail.com",
+          message: RATE_LIMIT_MESSAGE,
           status: response.status,
           code: "RATE_LIMIT_EXCEEDED",
         });
       }
 
+      const code =
+        (typeof errorData.code === "string" && errorData.code) ||
+        (typeof errorData.error === "string" && errorData.error) ||
+        "API_ERROR";
+      const message =
+        (typeof errorData.message === "string" && errorData.message) ||
+        (typeof errorData.error === "string" && errorData.error) ||
+        `HTTP ${response.status}: ${response.statusText}`;
+
       throw new ApiError({
-        message:
-          errorData.message ||
-          `HTTP ${response.status}: ${response.statusText}`,
+        message,
         status: response.status,
-        code: errorData.error,
+        code,
       });
     }
 
@@ -506,7 +582,7 @@ export const chatApi = {
   async sendMessage(request: ChatRequest): Promise<ChatResponse> {
     const response = await apiClient.post<ChatResponse>(
       "/api/ai/chat",
-      request
+      request,
     );
     return response;
   },
@@ -525,18 +601,18 @@ export const chatApi = {
 };
 
 function transformCodeReviewToAnalysis(
-  data: CodeReviewResult
+  data: CodeReviewResult,
 ): AnalysisResults {
   const securityIssues = data.issues.filter(
-    (issue) => issue.type === "security"
+    (issue) => issue.type === "security",
   );
   const totalIssues = data.issues.length;
   const highSeverityIssues = data.issues.filter(
-    (issue) => issue.severity === "high" || issue.severity === "critical"
+    (issue) => issue.severity === "high" || issue.severity === "critical",
   ).length;
 
   const qualityScore = Math.round(
-    (data.codeQuality.readability + data.codeQuality.maintainability) / 2
+    (data.codeQuality.readability + data.codeQuality.maintainability) / 2,
   );
   const issuesPenalty = Math.min(highSeverityIssues * 10, 50);
   const overallScore = Math.max(0, qualityScore * 10 - issuesPenalty);
@@ -558,8 +634,8 @@ function transformCodeReviewToAnalysis(
         issue.type === "warning"
           ? "style"
           : issue.type === "suggestion"
-          ? "style"
-          : (issue.type as "security" | "performance" | "style" | "bug"),
+            ? "style"
+            : (issue.type as "security" | "performance" | "style" | "bug"),
       title: issue.description,
       description: issue.description,
       line: issue.line || 0,
@@ -570,8 +646,8 @@ function transformCodeReviewToAnalysis(
         data.codeQuality.complexity === "Low"
           ? 1
           : data.codeQuality.complexity === "Medium"
-          ? 5
-          : 9,
+            ? 5
+            : 9,
       maintainability: data.codeQuality.maintainability,
       testCoverage: 0,
       performance: 5,
@@ -600,7 +676,7 @@ function transformCodeReviewToAnalysis(
           ? 95
           : Math.max(
               10,
-              95 - (data.securityConcerns.length + securityIssues.length) * 15
+              95 - (data.securityConcerns.length + securityIssues.length) * 15,
             ),
     },
   };
@@ -616,43 +692,14 @@ export function isRateLimitError(error: unknown): error is ApiError {
 
 export { apiClient };
 
-// Rate limit API functions
-export const rateLimitApi = {
-  async getStatus(): Promise<{
-    remainingRequests: number;
-    totalRequests: number;
-    resetTime: string;
-    userType: "guest" | "authenticated";
-  }> {
-    const response = await apiClient.get<{
-      remainingRequests: number;
-      totalRequests: number;
-      resetTime: string;
-      userType: "guest" | "authenticated";
-    }>("/api/rate-limit/status");
-    return response;
-  },
-
-  async checkLimit(): Promise<{
-    canProceed: boolean;
-    remainingRequests: number;
-    message?: string;
-  }> {
-    const response = await apiClient.get<{
-      canProceed: boolean;
-      remainingRequests: number;
-      message?: string;
-    }>("/api/rate-limit/check");
-    return response;
-  },
-};
-
 // Authentication API functions
 export const authApi = {
   async login(credentials: LoginRequest): Promise<AuthResponse> {
     const response = await apiClient.post<AuthResponse>(
       "/api/auth/login",
-      credentials
+      credentials,
+      undefined,
+      false,
     );
     return response;
   },
@@ -665,7 +712,9 @@ export const authApi = {
     try {
       const response = await apiClient.post<AuthResponse>(
         "/api/auth/register",
-        userData
+        userData,
+        undefined,
+        false,
       );
       console.log("✅ [API] Register response:", response);
       return response;
@@ -676,47 +725,32 @@ export const authApi = {
   },
 
   async getProfile(): Promise<ProfileResponse> {
-    const token = localStorage.getItem("auth_token");
-    const response = await apiClient.get<ProfileResponse>("/api/auth/profile", {
-      Authorization: `Bearer ${token}`,
-    });
+    const response = await apiClient.get<ProfileResponse>("/api/auth/profile");
     return response;
   },
 
   async updateProfile(data: UpdateProfileRequest): Promise<ProfileResponse> {
-    const token = localStorage.getItem("auth_token");
     const response = await apiClient.put<ProfileResponse>(
       "/api/auth/profile",
       data,
-      {
-        Authorization: `Bearer ${token}`,
-      }
     );
     return response;
   },
 
   async changePassword(
-    data: ChangePasswordRequest
+    data: ChangePasswordRequest,
   ): Promise<{ message: string }> {
-    const token = localStorage.getItem("auth_token");
     const response = await apiClient.post<{ message: string }>(
       "/api/auth/change-password",
       data,
-      {
-        Authorization: `Bearer ${token}`,
-      }
     );
     return response;
   },
 
   async logout(): Promise<{ message: string }> {
-    const token = localStorage.getItem("auth_token");
     const response = await apiClient.post<{ message: string }>(
       "/api/auth/logout",
       {},
-      {
-        Authorization: `Bearer ${token}`,
-      }
     );
     return response;
   },

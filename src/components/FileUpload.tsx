@@ -1,8 +1,5 @@
 import React, { useCallback, useState } from "react";
 import { Upload, File, AlertCircle, X } from "lucide-react";
-import { useRateLimit } from "@/hooks/useRateLimit";
-import { useAuth } from "@/hooks/useAuth";
-import { useNavigate } from "react-router-dom";
 
 export interface CodeFile {
   name: string;
@@ -24,9 +21,6 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const { rateLimitStatus, checkRateLimit } = useRateLimit();
-  const { isAuthenticated } = useAuth();
-  const navigate = useNavigate();
 
   const supportedExtensions = [
     ".js",
@@ -68,41 +62,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
   const isValidFile = (fileName: string): boolean => {
     return supportedExtensions.some((ext) =>
-      fileName.toLowerCase().endsWith(ext)
+      fileName.toLowerCase().endsWith(ext),
     );
   };
 
   const handleFiles = async (files: FileList) => {
     setError(null);
     setIsProcessing(true);
-
-    const isDevelopment = import.meta.env.DEV;
-
-    // Skip rate limit checking in development mode
-    if (!isDevelopment) {
-      // Check rate limits before processing files (production only)
-      await checkRateLimit();
-      if (!isAuthenticated && rateLimitStatus.isLimited) {
-        setError("Rate limit exceeded. Please login to continue.");
-        setIsProcessing(false);
-        // Redirect to login after a short delay
-        setTimeout(() => {
-          navigate("/login", {
-            state: {
-              rateLimitExceeded: true,
-              message:
-                "Rate limit exceeded. Please login to continue with higher limits.",
-            },
-            replace: true,
-          });
-        }, 2000);
-        return;
-      }
-    } else {
-      console.log(
-        "🚀 Development Mode: Skipping rate limit check for file upload"
-      );
-    }
 
     const fileArray = Array.from(files);
 
@@ -119,19 +85,21 @@ export const FileUpload: React.FC<FileUploadProps> = ({
       setError(
         `Unsupported file type(s): ${invalidFiles
           .map((f) => f.name)
-          .join(", ")}`
+          .join(", ")}`,
       );
       setIsProcessing(false);
       return;
     }
 
     // Check file sizes
-    const oversizedFiles = fileArray.filter((file) => file.size > 1024 * 1024); // 1MB limit
+    const oversizedFiles = fileArray.filter(
+      (file) => file.size > 5 * 1024 * 1024,
+    );
     if (oversizedFiles.length > 0) {
       setError(
         `File(s) too large: ${oversizedFiles
           .map((f) => f.name)
-          .join(", ")} (max 1MB)`
+          .join(", ")} (max 5MB)`,
       );
       setIsProcessing(false);
       return;
@@ -146,7 +114,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
             content,
             type: getFileType(file.name),
           };
-        })
+        }),
       );
 
       onFileUpload(codeFiles);
@@ -236,7 +204,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
             </p>
             <p className="text-xs text-gray-400 mt-1">
               {multiple ? `Up to ${maxFiles} files. ` : ""}Supports: JS, TS,
-              Python, Java, C++, and more
+              Python, Java, C++, and more. Max 5MB per file.
             </p>
           </div>
         </div>

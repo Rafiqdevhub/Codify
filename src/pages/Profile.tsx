@@ -20,7 +20,6 @@ import { UpdateProfileRequest } from "@/types/auth";
 // Validation schema
 const profileSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
-  email: z.string().email("Please enter a valid email address"),
 });
 
 type ProfileFormData = z.infer<typeof profileSchema>;
@@ -39,7 +38,6 @@ const Profile: React.FC = () => {
     resolver: zodResolver(profileSchema),
     defaultValues: {
       name: user?.name || "",
-      email: user?.email || "",
     },
   });
 
@@ -48,7 +46,6 @@ const Profile: React.FC = () => {
     if (user) {
       reset({
         name: user.name,
-        email: user.email,
       });
     }
   }, [user, reset]);
@@ -56,7 +53,7 @@ const Profile: React.FC = () => {
   const onSubmit = async (data: ProfileFormData) => {
     setIsLoading(true);
     try {
-      await updateProfile(data as UpdateProfileRequest);
+      await updateProfile({ name: data.name } as UpdateProfileRequest);
       setIsEditing(false);
     } catch (error) {
       // Error is handled by the auth context
@@ -136,15 +133,15 @@ const Profile: React.FC = () => {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="Enter your email"
-                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-gray-400"
-                    disabled={!isEditing}
-                    {...register("email")}
+                    className="pl-10 bg-white/10 border-white/20 text-gray-300"
+                    value={user.email}
+                    disabled
+                    readOnly
                   />
                 </div>
-                {errors.email && (
-                  <p className="text-sm text-red-400">{errors.email.message}</p>
-                )}
+                <p className="text-xs text-gray-400">
+                  Email cannot be changed from profile settings.
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -203,32 +200,6 @@ const Profile: React.FC = () => {
                 )}
               </div>
             </form>
-          </CardContent>
-        </Card>
-
-        <Card className="mt-6 bg-white/10 backdrop-blur-xl border border-white/20 shadow-xl">
-          <CardHeader>
-            <CardTitle className="text-orange-400">Rate Limiting</CardTitle>
-            <CardDescription className="text-gray-200">
-              Your current usage limits based on authentication status
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="p-4 bg-orange-500/10 backdrop-blur-sm rounded-md border border-orange-400/20">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-orange-300">
-                  Daily Request Limit
-                </span>
-                <span className="text-sm font-bold text-orange-300">
-                  100 requests
-                </span>
-              </div>
-              <p className="mt-2 text-xs text-orange-200">
-                As an authenticated user, you have access to 100 requests per
-                day. This is much higher than the 10 requests allowed for
-                guests.
-              </p>
-            </div>
           </CardContent>
         </Card>
       </div>

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { chatApi, isApiError, isRateLimitError } from "@/services/api";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -48,8 +48,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useRateLimit } from "@/hooks/useRateLimit";
-import { useAuth } from "@/hooks/useAuth";
 
 const formatMessageContent = (content: string) => {
   // Handle undefined or null content
@@ -76,7 +74,7 @@ const formatMessageContent = (content: string) => {
           className="bg-slate-800 text-gray-100 p-3 rounded-md overflow-x-auto my-2 text-sm border border-white/20"
         >
           <code>{currentCodeBlock.join("\n")}</code>
-        </pre>
+        </pre>,
       );
       currentCodeBlock = [];
     }
@@ -94,7 +92,7 @@ const formatMessageContent = (content: string) => {
               {item}
             </li>
           ))}
-        </ul>
+        </ul>,
       );
       currentList = [];
     }
@@ -130,7 +128,7 @@ const formatMessageContent = (content: string) => {
         inList = true;
       }
       currentList.push(
-        trimmedLine.replace(/^[-*+]\s+/, "").replace(/^\d+\.\s+/, "")
+        trimmedLine.replace(/^[-*+]\s+/, "").replace(/^\d+\.\s+/, ""),
       );
       return;
     } else if (inList && trimmedLine === "") {
@@ -151,7 +149,7 @@ const formatMessageContent = (content: string) => {
           className="mb-2 text-sm leading-relaxed font-medium text-white"
         >
           {headingText}
-        </p>
+        </p>,
       );
       return;
     }
@@ -164,7 +162,7 @@ const formatMessageContent = (content: string) => {
           className="mb-2 text-sm leading-relaxed font-medium text-white"
         >
           {headingText}
-        </p>
+        </p>,
       );
       return;
     }
@@ -193,7 +191,7 @@ const formatMessageContent = (content: string) => {
             className="mb-2 text-sm leading-relaxed text-white/90"
           >
             {formattedParts}
-          </p>
+          </p>,
         );
       }
       return;
@@ -207,7 +205,7 @@ const formatMessageContent = (content: string) => {
           className="mb-2 text-sm leading-relaxed text-white/90"
         >
           {trimmedLine}
-        </p>
+        </p>,
       );
     } else if (elements.length > 0) {
       // Add spacing for empty lines
@@ -240,35 +238,7 @@ interface ChatThread {
 }
 
 const AiChat = () => {
-  const { rateLimitStatus, checkRateLimit } = useRateLimit();
-  const { isAuthenticated } = useAuth();
-  const navigate = useNavigate();
-
-  // Check rate limits when component mounts
-  useEffect(() => {
-    checkRateLimit();
-  }, [checkRateLimit]);
-
-  // Handle rate limit redirection for guests
-  useEffect(() => {
-    const isDevelopment = import.meta.env.DEV;
-
-    // Skip rate limit redirection in development mode
-    if (isDevelopment) {
-      return;
-    }
-
-    if (!isAuthenticated && rateLimitStatus.isLimited) {
-      navigate("/login", {
-        state: {
-          rateLimitExceeded: true,
-          message:
-            "Rate limit exceeded. Please login to continue with higher limits.",
-        },
-        replace: true,
-      });
-    }
-  }, [isAuthenticated, rateLimitStatus.isLimited, navigate]);
+  const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
 
   const [threads, setThreads] = useState<ChatThread[]>([
     {
@@ -327,7 +297,7 @@ const AiChat = () => {
               createdAt: string;
               lastUpdated: string;
               messages: Array<Message & { timestamp: string }>;
-            }
+            },
           ) => ({
             ...thread,
             createdAt: new Date(thread.createdAt),
@@ -336,9 +306,9 @@ const AiChat = () => {
               (msg: Message & { timestamp: string }) => ({
                 ...msg,
                 timestamp: new Date(msg.timestamp),
-              })
+              }),
             ),
-          })
+          }),
         );
         setThreads(parsed);
       } catch (error) {
@@ -381,7 +351,7 @@ const AiChat = () => {
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId));
     if (activeThreadId === threadId) {
       const remainingThreads = threads.filter(
-        (thread) => thread.id !== threadId
+        (thread) => thread.id !== threadId,
       );
       if (remainingThreads.length > 0) {
         setActiveThreadId(remainingThreads[0].id);
@@ -414,8 +384,8 @@ const AiChat = () => {
                   ? inputValue.trim().slice(0, 50) + "..."
                   : thread.title,
             }
-          : thread
-      )
+          : thread,
+      ),
     );
 
     const messageContent = inputValue.trim();
@@ -426,7 +396,7 @@ const AiChat = () => {
       // Send message to backend API
       const response = await chatApi.sendMessage({
         message: messageContent,
-        threadId: activeThread.backendThreadId,
+        threadId: activeThread.backendThreadId || activeThread.id,
       });
 
       const assistantMessage: Message = {
@@ -448,10 +418,11 @@ const AiChat = () => {
                 backendThreadId:
                   response?.threadId || activeThread.backendThreadId, // Store backend thread ID
               }
-            : thread
-        )
+            : thread,
+        ),
       );
 
+      setRetryAction(null);
       setIsTyping(false);
     } catch (error) {
       console.error("Failed to send message:", error);
@@ -465,8 +436,11 @@ const AiChat = () => {
           type: "rate_limit",
           title: "Daily Limit Reached",
           message: "You have reached your daily limit for AI requests.",
-          details:
-            "If you need more requests, please contact us at: rafkhan9323@gmail.com",
+          details: "Please wait a bit and then retry your message.",
+        });
+        setRetryAction(() => () => {
+          setErrorDialog((prev) => ({ ...prev, isOpen: false }));
+          setInputValue(messageContent);
         });
 
         // Also add rate limit message to chat
@@ -474,7 +448,7 @@ const AiChat = () => {
           id: (Date.now() + 1).toString(),
           type: "assistant",
           content:
-            "You have reached the daily limit for AI requests. If you need more requests, please contact us at: rafkhan9323@gmail.com",
+            "You have reached the daily limit for AI requests. Please retry in a little while.",
           timestamp: new Date(),
         };
 
@@ -486,8 +460,8 @@ const AiChat = () => {
                   messages: [...thread.messages, rateLimitMessage],
                   lastUpdated: new Date(),
                 }
-              : thread
-          )
+              : thread,
+          ),
         );
       } else if (isApiError(error)) {
         // Determine error type based on status code
@@ -523,33 +497,9 @@ const AiChat = () => {
           variant: "destructive",
           duration: 5000,
         });
-
-        const errorAssistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          type: "assistant",
-          content:
-            "Sorry, I'm having trouble responding right now. Please try again later.",
-          timestamp: new Date(),
-        };
-
-        setThreads((prev) =>
-          prev.map((thread) =>
-            thread.id === activeThreadId
-              ? {
-                  ...thread,
-                  messages: [...thread.messages, errorAssistantMessage],
-                  lastUpdated: new Date(),
-                }
-              : thread
-          )
-        );
-      } else {
-        // Unknown error
-        toast({
-          title: "Message Failed",
-          description: "Failed to send message. Please try again.",
-          variant: "destructive",
-          duration: 5000,
+        setRetryAction(() => () => {
+          setErrorDialog((prev) => ({ ...prev, isOpen: false }));
+          setInputValue(messageContent);
         });
 
         const errorAssistantMessage: Message = {
@@ -568,8 +518,40 @@ const AiChat = () => {
                   messages: [...thread.messages, errorAssistantMessage],
                   lastUpdated: new Date(),
                 }
-              : thread
-          )
+              : thread,
+          ),
+        );
+      } else {
+        // Unknown error
+        toast({
+          title: "Message Failed",
+          description: "Failed to send message. Please try again.",
+          variant: "destructive",
+          duration: 5000,
+        });
+        setRetryAction(() => () => {
+          setErrorDialog((prev) => ({ ...prev, isOpen: false }));
+          setInputValue(messageContent);
+        });
+
+        const errorAssistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          type: "assistant",
+          content:
+            "Sorry, I'm having trouble responding right now. Please try again later.",
+          timestamp: new Date(),
+        };
+
+        setThreads((prev) =>
+          prev.map((thread) =>
+            thread.id === activeThreadId
+              ? {
+                  ...thread,
+                  messages: [...thread.messages, errorAssistantMessage],
+                  lastUpdated: new Date(),
+                }
+              : thread,
+          ),
         );
       }
     }
@@ -952,15 +934,9 @@ const AiChat = () => {
 
             {errorDialog.details && (
               <div className="bg-white/10 p-3 rounded-md border-l-4 border-orange-400">
-                <p className="text-sm font-medium text-white mb-1">
-                  Contact Information:
-                </p>
-                <div className="flex items-center space-x-2">
-                  <Mail className="h-4 w-4 text-white/70" />
-                  <span className="text-sm text-white/70">
-                    {errorDialog.details}
-                  </span>
-                </div>
+                <span className="text-sm text-white/70">
+                  {errorDialog.details}
+                </span>
               </div>
             )}
 
@@ -973,9 +949,7 @@ const AiChat = () => {
                   <li>
                     • Wait for the daily limit to reset (resets at midnight UTC)
                   </li>
-                  <li>
-                    • Contact us for increased limits if you're a regular user
-                  </li>
+                  <li>• Retry in a little while when capacity is available</li>
                   <li>
                     • Use the code review feature which has separate limits
                   </li>
@@ -1005,28 +979,19 @@ const AiChat = () => {
                 <ul className="text-sm text-white/70 space-y-1">
                   <li>• Wait a few minutes and try again</li>
                   <li>• Refresh the page</li>
-                  <li>• If the problem persists, contact support</li>
+                  <li>• Retry with a short backoff</li>
                 </ul>
               </div>
             )}
           </AlertDialogDescription>
 
           <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-            {errorDialog.type === "rate_limit" && errorDialog.details && (
+            {retryAction && (
               <AlertDialogAction
-                onClick={() => {
-                  window.open(
-                    `mailto:${errorDialog.details?.replace(
-                      "If you need more requests, please contact us at: ",
-                      ""
-                    )}?subject=Request for Increased AI Chat Limits&body=Hello, I would like to request increased daily limits for the AI chat feature. Thank you!`,
-                    "_blank"
-                  );
-                }}
+                onClick={retryAction}
                 className="bg-orange-600 hover:bg-orange-700"
               >
-                <Mail className="h-4 w-4 mr-2" />
-                Contact Support
+                Retry Draft
               </AlertDialogAction>
             )}
             <AlertDialogCancel

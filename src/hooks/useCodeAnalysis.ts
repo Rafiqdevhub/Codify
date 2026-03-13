@@ -23,7 +23,7 @@ export const useCodeAnalysis = () => {
     setState((prev) => ({ ...prev, isAnalyzing: true, error: null }));
 
     try {
-      const results = await codeAnalysisApi.analyzeCode(request);
+      const results = await codeAnalysisApi.analyzeText(request);
       setState((prev) => ({ ...prev, results, isAnalyzing: false }));
       return results;
     } catch (error) {
