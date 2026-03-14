@@ -32,5 +32,22 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "./src"),
       },
     },
+    build: {
+      sourcemap: false,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            react: ["react", "react-dom", "react-router-dom"],
+            query: ["@tanstack/react-query"],
+            ui: [
+              "lucide-react",
+              "class-variance-authority",
+              "clsx",
+              "tailwind-merge",
+            ],
+          },
+        },
+      },
+    },
   };
 });

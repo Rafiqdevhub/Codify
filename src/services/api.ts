@@ -21,161 +21,8 @@ function buildApiUrl(baseUrl: string, endpoint: string): string {
 }
 
 const API_BASE_URL = normalizeBaseUrl(ENV.api.baseUrl);
-const isMockMode = import.meta.env.VITE_MOCK_API === "true";
 const RATE_LIMIT_MESSAGE =
   "You have reached the daily request limit. Please try again later.";
-
-// Mock response functions for development testing
-const mockResponses: Record<string, { success: boolean; data: unknown }> = {
-  "/api/ai/chat": {
-    success: true,
-    data: {
-      message:
-        "This is a mock response for development testing. The backend is not available, but you can continue testing the UI.",
-      threadId: "mock-thread-123",
-    },
-  },
-  "/api/ai/review-text": {
-    success: true,
-    data: {
-      summary: "Mock code analysis completed successfully",
-      issues: [
-        {
-          type: "suggestion",
-          severity: "low",
-          description:
-            "Consider using const instead of let for variables that don't change",
-          suggestion: "Replace 'let' with 'const' where appropriate",
-        },
-      ],
-      suggestions: [
-        "Add error handling",
-        "Consider using TypeScript interfaces",
-      ],
-      securityConcerns: [],
-      codeQuality: {
-        readability: 8,
-        maintainability: 7,
-        complexity: "Low",
-      },
-      threadId: "mock-analysis-123",
-      filesAnalyzed: [
-        {
-          filename: "example.js",
-          language: "javascript",
-          size: 1024,
-        },
-      ],
-    },
-  },
-  "/api/ai/review-files": {
-    success: true,
-    data: {
-      summary: "Mock file analysis completed successfully",
-      issues: [],
-      suggestions: ["Files analyzed successfully in mock mode"],
-      securityConcerns: [],
-      codeQuality: {
-        readability: 9,
-        maintainability: 8,
-        complexity: "Low",
-      },
-      threadId: "mock-files-123",
-      filesAnalyzed: [
-        {
-          filename: "test.js",
-          language: "javascript",
-          size: 2048,
-        },
-      ],
-    },
-  },
-  "/api/ai/languages": {
-    success: true,
-    data: [
-      "javascript",
-      "typescript",
-      "python",
-      "java",
-      "csharp",
-      "cpp",
-      "go",
-      "rust",
-      "php",
-      "ruby",
-    ],
-  },
-  "/api/ai/guidelines": {
-    success: true,
-    data: {
-      guidelines: [
-        "Use meaningful variable names",
-        "Add proper error handling",
-        "Write comprehensive tests",
-        "Follow consistent code formatting",
-        "Document complex logic",
-      ],
-    },
-  },
-  "/api/auth/login": {
-    success: true,
-    data: {
-      message: "Login successful",
-      user: {
-        id: 1,
-        name: "Mock User",
-        email: "user@example.com",
-        created_at: "2025-01-01T00:00:00.000Z",
-      },
-      token: "mock-jwt-token-12345",
-    },
-  },
-  "/api/auth/register": {
-    success: true,
-    data: {
-      message: "User registered successfully",
-      user: {
-        id: 1,
-        name: "Mock User",
-        email: "user@example.com",
-        created_at: "2025-01-01T00:00:00.000Z",
-      },
-      token: "mock-jwt-token-12345",
-    },
-  },
-  "/api/auth/profile": {
-    success: true,
-    data: {
-      message: "Profile retrieved successfully",
-      user: {
-        id: 1,
-        name: "Mock User",
-        email: "user@example.com",
-        created_at: "2025-01-01T00:00:00.000Z",
-        updated_at: "2025-01-01T00:00:00.000Z",
-      },
-    },
-  },
-  "/api/auth/logout": {
-    success: true,
-    data: {
-      message: "Logout successful",
-    },
-  },
-  "/api/auth/change-password": {
-    success: true,
-    data: {
-      message: "Password changed successfully",
-    },
-  },
-};
-
-function getMockResponse<T>(endpoint: string): T | null {
-  // Remove query parameters for matching
-  const baseEndpoint = endpoint.split("?")[0];
-  const mockData = mockResponses[baseEndpoint];
-  return mockData ? (mockData as T) : null;
-}
 
 export interface CodeIssue {
   type: "bug" | "warning" | "suggestion" | "security";
@@ -308,41 +155,19 @@ function createApiClient(baseUrl: string) {
       }
     }
 
+    const shouldApplyTimeout = !requestOptions.signal && ENV.api.timeout > 0;
+    const controller = shouldApplyTimeout ? new AbortController() : null;
+    const timeoutId = shouldApplyTimeout
+      ? setTimeout(() => controller?.abort(), ENV.api.timeout)
+      : null;
+
     const config: ApiRequestOptions = {
       ...requestOptions,
       headers,
+      signal: requestOptions.signal ?? controller?.signal,
     };
 
     try {
-      // Check if we should use mock responses
-      if (isMockMode) {
-        if (import.meta.env.PROD) {
-          console.warn("[MOCK] VITE_MOCK_API is enabled in production.");
-        }
-        console.log(`[MOCK] Using mock response for ${endpoint}`);
-        const mockResponse = getMockResponse(endpoint);
-        if (mockResponse) {
-          // Add a small delay to simulate network request
-          await new Promise((resolve) => setTimeout(resolve, 500));
-
-          // For chat endpoint, return data directly (not wrapped)
-          if (endpoint === "/api/ai/chat") {
-            return (mockResponse as { success: boolean; data: T }).data;
-          }
-
-          // For auth endpoints, return data directly (not wrapped)
-          if (endpoint.startsWith("/api/auth/")) {
-            console.log(`🔐 [MOCK] Returning auth mock data for ${endpoint}`);
-            return (mockResponse as { success: boolean; data: T }).data;
-          }
-
-          // For other endpoints, return the full response structure
-          return mockResponse as T;
-        } else {
-          console.log(`⚠️ [MOCK] No mock response found for ${endpoint}`);
-        }
-      }
-
       const response = await fetch(url, config);
 
       if (!response.ok) {
@@ -359,6 +184,14 @@ function createApiClient(baseUrl: string) {
 
       return await response.json();
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new ApiError({
+          message: "Request timed out. Please try again.",
+          status: 408,
+          code: "TIMEOUT",
+        });
+      }
+
       if (error instanceof ApiError) {
         throw error;
       }
@@ -367,6 +200,10 @@ function createApiClient(baseUrl: string) {
         message:
           error instanceof Error ? error.message : "Network error occurred",
       });
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     }
   };
 
@@ -601,15 +438,35 @@ export const chatApi = {
   },
 
   async getChatHistory(threadId?: string): Promise<ChatMessage[]> {
-    return [];
+    void threadId;
+    return Promise.reject(
+      new ApiError({
+        message: "Chat history endpoint is not available.",
+        status: 501,
+        code: "NOT_IMPLEMENTED",
+      }),
+    );
   },
 
   async createThread(): Promise<{ threadId: string }> {
-    return { threadId: crypto.randomUUID() };
+    return Promise.reject(
+      new ApiError({
+        message: "Create thread endpoint is not available.",
+        status: 501,
+        code: "NOT_IMPLEMENTED",
+      }),
+    );
   },
 
   async deleteThread(threadId: string): Promise<void> {
-    return Promise.resolve();
+    void threadId;
+    return Promise.reject(
+      new ApiError({
+        message: "Delete thread endpoint is not available.",
+        status: 501,
+        code: "NOT_IMPLEMENTED",
+      }),
+    );
   },
 };
 
@@ -718,23 +575,13 @@ export const authApi = {
   },
 
   async register(userData: RegisterRequest): Promise<AuthResponse> {
-    console.log("🌐 [API] Register request:", {
-      url: `${API_BASE_URL}/api/auth/register`,
-      data: userData,
-    });
-    try {
-      const response = await apiClient.post<AuthResponse>(
-        "/api/auth/register",
-        userData,
-        undefined,
-        false,
-      );
-      console.log("✅ [API] Register response:", response);
-      return response;
-    } catch (error) {
-      console.error("❌ [API] Register error:", error);
-      throw error;
-    }
+    const response = await apiClient.post<AuthResponse>(
+      "/api/auth/register",
+      userData,
+      undefined,
+      false,
+    );
+    return response;
   },
 
   async getProfile(): Promise<ProfileResponse> {
