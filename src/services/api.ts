@@ -9,7 +9,18 @@ import type {
 } from "@/types/auth";
 import { ENV } from "@/config/environment";
 
-const API_BASE_URL = ENV.api.baseUrl;
+function normalizeBaseUrl(url: string): string {
+  return url.replace(/\/+$/, "");
+}
+
+function buildApiUrl(baseUrl: string, endpoint: string): string {
+  const normalizedEndpoint = endpoint.startsWith("/")
+    ? endpoint
+    : `/${endpoint}`;
+  return `${baseUrl}${normalizedEndpoint}`;
+}
+
+const API_BASE_URL = normalizeBaseUrl(ENV.api.baseUrl);
 const isMockMode = import.meta.env.VITE_MOCK_API === "true";
 const RATE_LIMIT_MESSAGE =
   "You have reached the daily request limit. Please try again later.";
@@ -237,6 +248,8 @@ export class ApiError extends Error {
 }
 
 function createApiClient(baseUrl: string) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+
   type ApiRequestOptions = RequestInit & {
     includeAuth?: boolean;
   };
@@ -277,7 +290,7 @@ function createApiClient(baseUrl: string) {
     endpoint: string,
     options: ApiRequestOptions = {},
   ): Promise<T> => {
-    const url = `${baseUrl}${endpoint}`;
+    const url = buildApiUrl(normalizedBaseUrl, endpoint);
     const { includeAuth = true, ...requestOptions } = options;
 
     const headers = new Headers(requestOptions.headers || {});
